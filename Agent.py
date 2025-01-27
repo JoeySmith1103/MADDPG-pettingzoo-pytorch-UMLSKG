@@ -35,13 +35,31 @@ class Agent:
         # b) calculate action when update actor, where input(obs) is sampled from replay buffer with size:
         # torch.Size([batch_size, state_dim])
 
-        logits = self.actor(obs)  # torch.Size([batch_size, action_size])
-        # action = self.gumbel_softmax(logits)
-        action = F.gumbel_softmax(logits, hard=True)
+        # logits = self.actor(obs)  # torch.Size([batch_size, action_size])
+        # # action = self.gumbel_softmax(logits)
+        # action = F.gumbel_softmax(logits, hard=True)
+        # if model_out:
+        #     return action, logits
+        # return action
+
+        ## 2025 / 1 / 23 test
+        logits = self.actor(obs)
+        action_probabilities = F.gumbel_softmax(logits, hard=True)
+        action = torch.argmax(action_probabilities).item()
+
+        if action == 0:  # 1-hop search
+            # 執行 1-hop search 查詢
+            self.execute_one_hop_search()
+        elif action == 1:  # 跨群 search
+            # 執行跨群搜索
+            self.execute_cross_group_search()
+        elif action == 2:  # 停止 search
+            pass
+
         if model_out:
             return action, logits
         return action
-
+    
     def target_action(self, obs):
         # when calculate target critic value in MADDPG,
         # we use target actor to get next action given next states,

@@ -4,11 +4,12 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 from pettingzoo.mpe import simple_adversary_v2, simple_spread_v2, simple_tag_v2
+import custom_environment.env.med_rag_env as simple_spread_v3
 
 from MADDPG import MADDPG
 
 
-def get_env(env_name, ep_len=25):
+def get_env(env_name, ep_len=3, agent_num=80):
     """create environment and get observation and action dimension of each agent in this environment"""
     new_env = None
     if env_name == 'simple_adversary_v2':
@@ -17,6 +18,8 @@ def get_env(env_name, ep_len=25):
         new_env = simple_spread_v2.parallel_env(max_cycles=ep_len)
     if env_name == 'simple_tag_v2':
         new_env = simple_tag_v2.parallel_env(max_cycles=ep_len)
+    if env_name == 'simple_spread_v3':
+        new_env = simple_spread_v3.parallel_env(N=agent_num, max_cycles=ep_len)
 
     new_env.reset()
     _dim_info = {}
@@ -31,8 +34,8 @@ def get_env(env_name, ep_len=25):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('env_name', type=str, default='simple_adversary_v2', help='name of the env',
-                        choices=['simple_adversary_v2', 'simple_spread_v2', 'simple_tag_v2'])
-    parser.add_argument('--episode_num', type=int, default=30000,
+                        choices=['simple_adversary_v2', 'simple_spread_v2', 'simple_tag_v2', 'simple_spread_v3'])
+    parser.add_argument('--episode_num', type=int, default=3000,
                         help='total episode num during training procedure')
     parser.add_argument('--episode_length', type=int, default=25, help='steps per episode')
     parser.add_argument('--learn_interval', type=int, default=100,
@@ -45,6 +48,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=1024, help='batch-size of replay buffer')
     parser.add_argument('--actor_lr', type=float, default=0.01, help='learning rate of actor')
     parser.add_argument('--critic_lr', type=float, default=0.01, help='learning rate of critic')
+    parser.add_argument('--agent_num', type=int, default=80, help='number of agents in the environment')
     args = parser.parse_args()
 
     # create folder to save result
@@ -55,7 +59,7 @@ if __name__ == '__main__':
     result_dir = os.path.join(env_dir, f'{total_files + 1}')
     os.makedirs(result_dir)
 
-    env, dim_info = get_env(args.env_name, args.episode_length)
+    env, dim_info = get_env(args.env_name, args.episode_length, args.agent_num)
     maddpg = MADDPG(dim_info, args.buffer_capacity, args.batch_size, args.actor_lr, args.critic_lr,
                     result_dir)
 
@@ -112,15 +116,35 @@ if __name__ == '__main__':
         return running_reward
 
 
-    # training finishes, plot reward
-    fig, ax = plt.subplots()
+    # # training finishes, plot reward
+    # fig, ax = plt.subplots()
+    # x = range(1, args.episode_num + 1)
+    # for agent_id, reward in episode_rewards.items():
+    #     ax.plot(x, reward, label=agent_id)
+    #     ax.plot(x, get_running_reward(reward))
+    # ax.legend()
+    # ax.set_xlabel('episode')
+    # ax.set_ylabel('reward')
+    # title = f'training result of maddpg solve {args.env_name}'
+    # ax.set_title(title)
+    # plt.savefig(os.path.join(result_dir, title))
+
+    # 初始化加總的 reward
     x = range(1, args.episode_num + 1)
-    for agent_id, reward in episode_rewards.items():
-        ax.plot(x, reward, label=agent_id)
-        ax.plot(x, get_running_reward(reward))
+
+    # 計算每個 episode 所有 agent 的 reward 總和
+    total_rewards = [sum(rewards) for rewards in zip(*episode_rewards.values())]
+
+    # 繪製加總的 reward
+    fig, ax = plt.subplots()
+    ax.plot(x, total_rewards, label='Total Reward', color='blue', linewidth=2)
+
+    # 添加圖例、標籤和標題
     ax.legend()
-    ax.set_xlabel('episode')
-    ax.set_ylabel('reward')
-    title = f'training result of maddpg solve {args.env_name}'
+    ax.set_xlabel('Episode')
+    ax.set_ylabel('Reward')
+    title = f'Training result of MADDPG solving {args.env_name}'
     ax.set_title(title)
+
+    # 保存圖像
     plt.savefig(os.path.join(result_dir, title))

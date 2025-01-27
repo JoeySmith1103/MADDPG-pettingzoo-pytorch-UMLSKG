@@ -79,15 +79,23 @@ class MADDPG:
         return obs, act, reward, next_obs, done, next_act
 
     def select_action(self, obs):
+        # actions = {}
+        # for agent, o in obs.items():
+        #     o = torch.from_numpy(o).unsqueeze(0).float()
+        #     a = self.agents[agent].action(o)  # torch.Size([1, action_size])
+        #     # NOTE that the output is a tensor, convert it to int before input to the environment
+        #     # actions[agent] = a.squeeze(0).argmax().item()
+        #     self.logger.info(f'{agent} action: {actions[agent]}')
+        # return actions
+        
+        ## 2025 / 1 / 23 test
         actions = {}
         for agent, o in obs.items():
             o = torch.from_numpy(o).unsqueeze(0).float()
-            a = self.agents[agent].action(o)  # torch.Size([1, action_size])
-            # NOTE that the output is a tensor, convert it to int before input to the environment
-            actions[agent] = a.squeeze(0).argmax().item()
-            self.logger.info(f'{agent} action: {actions[agent]}')
+            a = self.agents[agent].action(o)
+            actions[agent] = a
         return actions
-
+    
     def learn(self, batch_size, gamma):
         for agent_id, agent in self.agents.items():
             obs, act, reward, next_obs, done, next_act = self.sample(batch_size)

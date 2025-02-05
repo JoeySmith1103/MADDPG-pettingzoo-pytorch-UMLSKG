@@ -250,17 +250,33 @@
 # print("After Action 0:", test_env.scenario.observation(test_agent, test_env.world))
 
 from gymnasium.utils import EzPickle
-from pettingzoo.mpe._mpe_utils.core import Agent, World
+# from pettingzoo.mpe._mpe_utils.core import Agent
+from pettingzoo.mpe._mpe_utils.core import World
 from pettingzoo.mpe._mpe_utils.scenario import BaseScenario
 from pettingzoo.mpe._mpe_utils.simple_env import SimpleEnv, make_env
 from utils.graph_handler import GraphHandler
 from utils.data_loader import DataLoader
 import torch
+import numpy as np
+import sys
+import os
+
+# 讓 Python 知道 Agent.py 在 MADDPG 目錄
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+## check agent class
+# from Agent import Agent
+from Agent import CustomAgent
 
 class raw_env(SimpleEnv, EzPickle):
-    def __init__(self, N=80, local_ratio=0.5, max_cycles=25, continuous_actions=False):
+    def __init__(self, N=59, local_ratio=0.5, max_cycles=25, continuous_actions=False):
+        EzPickle.__init__(self, N=N, local_ratio=local_ratio, max_cycles=max_cycles, continuous_actions=continuous_actions,)
+        assert (
+            0.0 <= local_ratio <= 1.0
+        ), "local_ratio is a proportion. Must be between 0 and 1."
         scenario = Scenario()
         world = scenario.make_world(N)
+        for agent in world.agents:
+            agent.action_space = 3
         SimpleEnv.__init__(self, scenario=scenario, world=world, max_cycles=max_cycles, 
                            continuous_actions=continuous_actions, local_ratio=local_ratio)
         self.metadata["name"] = "simple_spread_v3"
@@ -271,24 +287,61 @@ class Scenario(BaseScenario):
         self.data_loader = DataLoader()
         self.training_data = self.data_loader.get_training_data()
 
-    def make_world(self, N=3):
+    def make_world(self, N=59):
         world = World()
         world.dim_c = 0  
         world.collaborative = True
-        all_nodes = self.graph_handler.get_all_concept_nodes()
-        world.agents = [Agent() for i in range(N)]
+        num_agents = N
+
+        ## 2025/2/1 test for Agent.py parameters
+        obs_dim = 3  # [num_neighbors, avg_similarity, variance_similarity]
+        act_dim = 3  # [1-hop search, cross-group search, stop search]
+        global_obs_dim = obs_dim * num_agents  # 依據 MADDPG 需要全局狀態
+        actor_lr = 0.01  # 學習率
+        critic_lr = 0.01  # 學習率
+        # world.agents = [Agent() for i in range(num_agents)]
+        # world.agents = [Agent(obs_dim, act_dim, global_obs_dim, actor_lr, critic_lr) for i in range(num_agents)]
+        world.agents = [CustomAgent(obs_dim, act_dim, global_obs_dim, actor_lr, critic_lr) for i in range(num_agents)]
+        print(f"Agents number: {num_agents}")
+
         for i, agent in enumerate(world.agents):
-            agent.node_id = all_nodes[i]
+            agent.name = f"agent_{i}"
+            ## SimpleEnv must have these attributes below, can't be deleted
+            agent.collide = False
+            agent.silent = True
+            agent.size = 0.15
+
         return world
 
+    ## note that reset_world will be automatically called when make_world is called
+    def reset_world(self, world, np_random):
+        print("first reset")
+        # random properties for agents
+        for i, agent in enumerate(world.agents):
+            agent.color = np.array([0.35, 0.35, 0.85])
+        ## 2025/02/05 
+        ## TODO: should get top k(59) similarity cuis from data
+        initial_cuis = self.graph_handler.get_initial_cuis()
+
+        while len(initial_cuis) < len(world.agents):
+            initial_cuis = self.graph_handler.get_initial_cuis()
+            raise ValueError("選擇的 dataset 內的 CUI 數量不足，無法初始化所有 agents")
+        # 重新指派 `Agent` 的 `node_id`
+        for i, agent in enumerate(world.agents):
+            agent.node_id = initial_cuis[i]
+            agent.update_state(self)
+
+        print(f"新 episode 選擇 dataset，Agents 初始化完成")
+
     def step(self, agent, action):
-        if action == 0:
-            neighbors = self.graph_handler.find_one_hop_neighbors(agent.node_id)
-            if neighbors:
-                agent.node_id = neighbors[0]['neighbor_cui']
+        # if action == 0:
+        #     neighbors = self.graph_handler.find_one_hop_neighbors(agent.node_id)
+        #     if neighbors:
+        #         agent.node_id = neighbors[0]['neighbor_cui']
+        agent.execute_action(action, self)
 
     def observation(self, agent, world):
-        return self.graph_handler.calculate_average_similarity(agent.node_id)
+        return agent.state
 
     def reward(self, agent, world):
         similarity_stats = self.calculate_similarity(agent.node_id)
@@ -297,18 +350,11 @@ class Scenario(BaseScenario):
         # reward 是平均相似度
         return avg_similarity
     
-test_env = raw_env(N=3)
+test_env = raw_env(N=59)
 test_agent = test_env.world.agents[0]
 
 print("初始 Node ID:", test_agent.node_id)
 print("初始 Observation:", test_env.scenario.observation(test_agent, test_env.world))
 
-# 讓 Agent 選擇動作
-obs = test_env.scenario.observation(test_agent, test_env.world)
-action = test_agent.action(torch.tensor(obs, dtype=torch.float32))
-
-# 執行動作並更新環境
-test_env.scenario.step(test_agent, action)
-
-print("執行動作後 Node ID:", test_agent.node_id)
-print("執行動作後 Observation:", test_env.scenario.observation(test_agent, test_env.world))
+test_env.scenario.step(test_agent, 0)  # 執行 1-hop search
+print("After Action 0:", test_env.scenario.observation(test_agent, test_env.world))

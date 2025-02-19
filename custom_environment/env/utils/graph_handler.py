@@ -16,30 +16,29 @@ class GraphHandler:
         self.tokenizer = AutoTokenizer.from_pretrained("JoeySmith1103/sapbert_2023ABFull")
         self.model = AutoModel.from_pretrained("JoeySmith1103/sapbert_2023ABFull").cuda()
         self.data_loader = DataLoader()
+        self.ranked_data = self.data_loader.get_training_data()
 
     def close(self):
         self.driver.close()
 
-    def get_initial_cuis(self):
-        """
-        get all query keyword's cui
-        """
-        # get all dataset
-        all_data_cuis = self.data_loader.get_all_llama_keyword_cuis()
-
-        # randomly pick one dataset
-        initial_cuis = random.choice(all_data_cuis)
-
-        return initial_cuis
-    def get_top_k_cuis_from_one_data(self, k=59):
+    def get_top_k_cuis_from_randomly_chosen_one_data(self, k=10):
         """
         get top k cuis from one dataset
         """
-        all_data_cuis = self.data_loader.get_all_llama_keyword_cuis()
-        index = random.choice(list(all_data_cuis.keys()))
-        ## TODO: need to calculate the smilarity between cui keyword and prompt keyword
-        cuis = all_data_cuis[index]
-        return cuis[:k]
+        random_index = random.randint(0, len(self.ranked_data) - 1)
+        selected_data = self.ranked_data[random_index]
+        selected_ranking = selected_data["ranking"]
+        top_k_cuis = []
+        
+        for entity, cui, _ , similarity in selected_ranking:
+            if len(top_k_cuis) >= k:
+                break 
+
+            # check if cui has neighbors
+            if self.find_one_hop_neighbors(cui):  
+                top_k_cuis.append((cui, similarity))
+
+        return top_k_cuis  # return top k cuis
     
     def find_one_hop_neighbors(self, node_id):
         query = """
@@ -104,3 +103,25 @@ class GraphHandler:
             "avg_similarity": avg_similarity,
             "variance_similarity": variance_similarity,
         }
+    
+test = GraphHandler()
+ge = test.get_top_k_cuis_from_randomly_chosen_one_data()
+print(ge)
+# length = []
+# filter = [r for r in test.ranked_data[0]['ranking'] if r[3] > 0.4]
+# print(len(filter))
+# print(len(test.ranked_data[0]['ranking']))
+# for entry in test.ranked_data:
+#     # 過濾 similarity > 0.4 的 ranking
+#     original_length = len(entry['ranking'])
+#     filtered_ranking = [r for r in entry['ranking'] if r[3] > 0.4]
+#     print(original_length, len(filtered_ranking))
+#     length.append(len(filtered_ranking))
+
+# # 計算平均長度和最小長度
+# if length:  # 確保不會除以 0
+#     print(f"similarity > 0.4 的平均 ranking 長度: {np.average(length):.2f}")
+#     print(f"similarity > 0.4 的最小 ranking 長度: {min(length)}")
+# else:
+#     print("沒有符合 similarity > 0.4 的 ranking")
+# print(test.ranked_data[99]['ranking'])

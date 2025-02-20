@@ -30,17 +30,17 @@ class GraphHandler:
         selected_ranking = selected_data["ranking"]
         top_k_cuis = []
         
-        for entity, cui, _ , similarity in selected_ranking:
+        for entity, cui, group , similarity in selected_ranking:
             if len(top_k_cuis) >= k:
                 break 
 
             # check if cui has neighbors
             if self.find_one_hop_neighbors(cui):  
-                top_k_cuis.append((cui, similarity))
+                top_k_cuis.append((cui, similarity, group))
 
         return top_k_cuis  # return top k cuis
     
-    def find_one_hop_neighbors(self, node_id):
+    def find_one_hop_neighbors(self, node_id: str):
         query = """
         MATCH (c:Concept {CUI: $cui})-[:PAR|:CHD|:RN|:AQ|:SY*1]->(neighbor:Concept)
         RETURN neighbor.CUI AS neighbor_cui, neighbor.name AS neighbor_name
@@ -49,7 +49,18 @@ class GraphHandler:
             result = session.run(query, cui=node_id)
             return [{"neighbor_cui": record["neighbor_cui"], "neighbor_name": record["neighbor_name"]} for record in result]
 
-    def get_embeddings(self, names, tokenizer, model, batch_size=128):
+    def find_two_hop_neighbors(self, node_id: str):
+        """get 2-hop neighbors"""
+        query = """
+        MATCH (c:Concept {CUI: $cui})-[:PAR|:CHD|:RN|:AQ|:SY*1..2]->(neighbor:Concept)
+        WHERE neighbor.CUI <> $cui
+        RETURN DISTINCT neighbor.CUI AS neighbor_cui, neighbor.name AS neighbor_name
+        """
+        with self.driver.session() as session:
+            result = session.run(query, cui=node_id)
+            return [{"neighbor_cui": record["neighbor_cui"], "neighbor_name": record["neighbor_name"]} for record in result]
+
+    def get_embeddings(self, names: str, tokenizer, model, batch_size=128):
         if not names:
             print("[Warning] Empty name list provided to get_embeddings(), returning empty array.")
             return np.array([])  # 直接回傳空陣列，避免錯誤
@@ -72,7 +83,7 @@ class GraphHandler:
 
         return all_embs
 
-    def calculate_average_similarity_among_neighbors(self, node):
+    def calculate_average_similarity_among_neighbors(self, node: float):
         neighbors = self.find_one_hop_neighbors(node_id=node)
 
         if not neighbors:
@@ -104,9 +115,8 @@ class GraphHandler:
             "variance_similarity": variance_similarity,
         }
     
-test = GraphHandler()
-ge = test.get_top_k_cuis_from_randomly_chosen_one_data()
-print(ge)
+    def __del__(self):
+        self.driver.close()
 # length = []
 # filter = [r for r in test.ranked_data[0]['ranking'] if r[3] > 0.4]
 # print(len(filter))
